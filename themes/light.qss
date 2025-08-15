@@ -1,0 +1,13 @@
+* { font-family: "Segoe UI", "Roboto", Arial; }
+QMainWindow, QWidget { background: #F7F9FB; color: #1F2937; }
+QStatusBar { background: #EEF2F7; border-top: 1px solid #D6DEE9; }
+QToolBar { background: #EEF2F7; border: 0px; spacing: 8px; padding: 6px; }
+QToolButton, QPushButton { background: #FFFFFF; border: 1px solid #D6DEE9; border-radius: 8px; padding: 6px 10px; }
+QToolButton:hover, QPushButton:hover { background: #F2F6FC; }
+QToolButton:pressed, QPushButton:pressed { background: #E5EFFB; }
+QLineEdit, QTextEdit, QComboBox { background: #FFFFFF; border: 1px solid #CBD5E1; border-radius: 6px; padding: 6px; }
+QLineEdit:focus, QTextEdit:focus, QComboBox:focus { border: 1px solid #2F4F6E; }
+QTableView { background: #FFFFFF; gridline-color: #E5E7EB; alternate-background-color: #F6F8FA; border: 1px solid #D6DEE9; border-radius: 6px; }
+QTableView::item:hover { background: #EAF2FF; }
+QHeaderView::section { background: #F2F4F8; border: 0px; padding: 6px; font-weight: 600; border-bottom: 1px solid #D6DEE9; }
+QDockWidget::title { background: #EEF2F7; padding: 6px; border: 0px; font-weight: 600; color: #2F4F6E; }
