@@ -1,0 +1,83 @@
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Caches & Logs
+*.log
+*.sqlite3
+*.db
+*.bak
+*.tmp
+
+
+# Python Virtual Environments
+.env/
+.venv/
+venv/
+ENV/
+env/
+.Python
+pip-wheel-metadata/
+*.egg-info/
+
+# Editor-/IDE-spezifische Dateien
+.vscode/
+.idea/
+*.swp
+*.swo
+.vs/
+*.vsidx
+*.pyproj
+*.sln
+
+# Mac/Linux
+.DS_Store
+*.sublime-workspace
+*.sublime-project
+
+# Windows
+Thumbs.db
+desktop.ini
+
+# Projekteinstellungen (z. B. Visual Studio)
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Jupyter/IPython
+.ipynb_checkpoints
+
+# Build-/Dist
+build/
+dist/
+*.egg-info/
+
+# Persönliche Daten
+*.secret
+*.key
+
+# Tests & Debug
+.coverage
+.cache/
+*.cover
+*.db
+
+# Umgebungskonfig
+!.env.template
+.env*
+
+# Export- oder Backup-Dateien
+*.zip
+backup_*.json
+
+# Projektgenerierte Dateien
+project_structure_*.zip
+tests/report_*.html
+tests/report_*.md
+tests/report_*.json
+
+# Beispiele: Cleanup-Report
+cleanup_report_*.html
+cleanup_report_*.md
