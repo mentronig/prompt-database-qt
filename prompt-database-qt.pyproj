@@ -40,6 +40,7 @@
     <Compile Include="ui\prompt_editor.py" />
     <Compile Include="ui\prompt_table_model.py" />
     <Compile Include="ui\__init__.py" />
+    <Compile Include="utils\html_render.py" />
   </ItemGroup>
   <ItemGroup>
     <Folder Include="config\" />
@@ -48,6 +49,7 @@
     <Folder Include="models\" />
     <Folder Include="services\" />
     <Folder Include="ui\" />
+    <Folder Include="utils\" />
   </ItemGroup>
   <ItemGroup>
     <Content Include=".env" />
