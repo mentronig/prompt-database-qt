@@ -23,6 +23,9 @@
 - Log zeigt Normalisierung + Updates  
 - Tagliste bleibt übersichtlich  
 
+- **Status:** In Arbeit  
+**Owner:** Mentronig 
+**Verweis:** docs/handovers/S-001_tag_overloading.md
 ---
 
 ## Bugs
