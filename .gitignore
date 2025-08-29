@@ -67,6 +67,7 @@ dist/
 # Umgebungskonfig
 !.env.template
 .env*
+.env
 
 # Export- oder Backup-Dateien
 *.zip
