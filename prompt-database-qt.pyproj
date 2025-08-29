@@ -27,6 +27,12 @@
     <Compile Include="data\prompt_repository.py" />
     <Compile Include="data\__init__.py" />
     <Compile Include="docs\__init__.py" />
+    <Compile Include="ingestion\article_fetcher.py" />
+    <Compile Include="ingestion\article_fetcher_local.py" />
+    <Compile Include="ingestion\article_ingestor.py" />
+    <Compile Include="ingestion\bulk_ingest_local.py" />
+    <Compile Include="ingestion\llm_provider.py" />
+    <Compile Include="ingestion\qt_bulk_ingest.py" />
     <Compile Include="main.py" />
     <Compile Include="models\prompt.py" />
     <Compile Include="models\__init__.py" />
@@ -35,7 +41,9 @@
     <Compile Include="services\migration_service.py" />
     <Compile Include="services\theme_manager.py" />
     <Compile Include="services\__init__.py" />
+    <Compile Include="tests\test_article_ingestor.py" />
     <Compile Include="theme_manager.py" />
+    <Compile Include="ui\bulk_ingest.py" />
     <Compile Include="ui\main_window.py" />
     <Compile Include="ui\prompt_editor.py" />
     <Compile Include="ui\prompt_table_model.py" />
@@ -46,8 +54,10 @@
     <Folder Include="config\" />
     <Folder Include="data\" />
     <Folder Include="docs\" />
+    <Folder Include="ingestion\" />
     <Folder Include="models\" />
     <Folder Include="services\" />
+    <Folder Include="tests\" />
     <Folder Include="ui\" />
     <Folder Include="utils\" />
   </ItemGroup>

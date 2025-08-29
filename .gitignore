@@ -71,6 +71,7 @@ dist/
 # Export- oder Backup-Dateien
 *.zip
 backup_*.json
+backups/
 
 # Projektgenerierte Dateien
 project_structure_*.zip

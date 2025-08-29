@@ -1,15 +1,17 @@
 # ui/main_window.py – Komplettversion mit Import-Assistent & Validierung
 
+import sys                    
+import json                   
 from typing import Optional, List
 from pathlib import Path
 
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QLabel, QTableView,
     QTextEdit, QSplitter, QToolBar, QFileDialog, QMessageBox, QPushButton,
-    QDockWidget, QComboBox, QToolButton, QMenu, QCheckBox, QScrollArea
+    QDockWidget, QComboBox, QToolButton, QMenu, QCheckBox, QScrollArea, QProgressDialog
 )
-from PySide6.QtCore import Qt, QSortFilterProxyModel, QModelIndex, QSize, QPoint
-from PySide6.QtGui import QIcon, QAction
+from PySide6.QtCore import Qt, QSortFilterProxyModel, QModelIndex, QSize, QPoint, QProcess
+from PySide6.QtGui import QIcon, QAction, QKeySequence
 
 from data.prompt_repository import PromptRepository
 from services.export_service import export_csv, export_markdown, export_json, export_yaml
@@ -103,6 +105,11 @@ class MainWindow(QMainWindow):
 
         self.repo = PromptRepository()
 
+        #Ignest aufrufe
+        self._ingest_proc: QProcess | None = None
+        self._ingest_progress: QProgressDialog | None = None
+
+
         # Toolbar
         tb = QToolBar("Aktionen", self)
         tb.setIconSize(QSize(18, 18))
@@ -148,6 +155,26 @@ class MainWindow(QMainWindow):
         tb.addWidget(btn_reset)
         tb.addSeparator()
         tb.addWidget(theme_btn)
+
+        #==========================================================
+        # ---- Menüleiste: Import -> Bulk ingest folder… ----
+        menubar = self.menuBar()
+        import_menu = None
+        # versuche vorhandenes "Import" Menü zu finden
+        for act in menubar.actions():
+            if act.text().replace("&", "").strip().lower() == "import":
+                import_menu = act.menu()
+                break
+        if import_menu is None:
+            import_menu = menubar.addMenu("&Import")
+
+        self.action_bulk_ingest = QAction("Bulk ingest folder…", self)
+        self.action_bulk_ingest.setShortcut(QKeySequence("Ctrl+I"))
+        import_menu.addAction(self.action_bulk_ingest)
+        self.action_bulk_ingest.triggered.connect(self.on_bulk_ingest_triggered)
+        #==========================================================
+
+
 
         # Suche & Filter + Tag-Logik-Umschalter
         search_row = QHBoxLayout()
@@ -285,6 +312,7 @@ class MainWindow(QMainWindow):
 
         self.refresh()
 
+    
     # --- Prefs ---
     def _load_prefs(self):
         p = prefs.load()
@@ -608,6 +636,145 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Export", f"YAML exportiert: {path}")
         except Exception as e:
             QMessageBox.critical(self, "Export-Fehler", str(e))
+
+        # ===== Bulk-Ingest (QProcess) =====
+
+    def on_bulk_ingest_triggered(self):
+        # Ordner mit .txt-Dateien wählen
+        folder = QFileDialog.getExistingDirectory(self, "Ordner mit .txt-Dateien für Ingest wählen")
+        if not folder:
+            return
+        self._start_bulk_ingest(folder)
+
+    def _start_bulk_ingest(self, folder: str):
+        if self._ingest_proc is not None:
+            QMessageBox.information(self, "Läuft", "Ein Bulk-Ingest läuft bereits.")
+            return
+
+        # Fortschrittsdialog
+        dlg = QProgressDialog("Starte Bulk-Ingest…", "Abbrechen", 0, 0, self)
+        dlg.setCancelButtonText("Abbrechen")  # eindeutiger
+        dlg.setWindowTitle("Bulk ingest")
+        dlg.setWindowModality(Qt.ApplicationModal)
+        dlg.setAutoClose(False)
+        dlg.setAutoReset(False)
+        dlg.show()
+        self._ingest_progress = dlg
+
+        # QProcess konfigurieren
+        proc = QProcess(self)
+        proc.setProcessChannelMode(QProcess.SeparateChannels)
+        py = sys.executable   # venv-sicher
+        args = [
+            "-m", "ingestion.bulk_ingest_local",
+            "--dir", folder,
+            "--emit-jsonl", str(Path(folder) / "ingest_log.jsonl"),
+            # Optional: Flags hier ergänzen
+            # "--dry-run",
+            # "--category", "local",
+            # "--tags", "article,pattern,local",
+        ]
+        # working dir = Projekt-Root, damit -m ingestion.* gefunden wird
+        proc.setWorkingDirectory(str(Path.cwd()))
+
+        # Signale verbinden
+        proc.readyReadStandardOutput.connect(self._on_ingest_stdout)
+        proc.readyReadStandardError.connect(self._on_ingest_stderr)
+        proc.finished.connect(self._on_ingest_finished)
+        dlg.canceled.connect(proc.kill)
+        dlg.canceled.connect(dlg.close)
+
+        self._ingest_proc = proc
+        proc.start(py, args)
+        if not proc.waitForStarted(3000):
+            QMessageBox.critical(self, "Fehler", "Konnte den Python-Prozess nicht starten.")
+            self._ingest_proc = None
+            dlg.close()
+            self._ingest_progress = None
+            return
+
+        # initialer Text
+        dlg.setLabelText(f"Verarbeite Ordner:\n{folder}")
+
+    def _on_ingest_stdout(self):
+        if not self._ingest_proc or not self._ingest_progress:
+            return
+        proc = self._ingest_proc
+        dlg = self._ingest_progress
+        # Zeilenweise lesen (JSON-Progress)
+        while proc.canReadLine():
+            raw = bytes(proc.readLine()).decode("utf-8", errors="replace").strip()
+            if not raw:
+                continue
+            # Versuch JSON zu parsen
+            try:
+                obj = json.loads(raw)
+            except Exception:
+                # kein JSON -> im Dialog anzeigen
+                dlg.setLabelText((dlg.labelText() or "") + "\n" + raw)
+                continue
+
+                i, n = int(obj["progress"]), int(obj["total"])
+                if dlg.maximum() != n:
+                    dlg.setMaximum(n)
+                dlg.setValue(i)
+
+                fn   = obj.get("file", "")
+                titl = obj.get("title", "")
+                ids  = obj.get("saved_ids") or []
+                ok   = "✓" if obj.get("ok") else "×"
+
+                # Mehrzeilige, gut lesbare Statusanzeige
+                lines = [f"[{i}/{n}] {fn} {ok}"]
+                if titl:
+                    lines.append(f"→ Titel: {titl}")
+                if ids:
+                    lines.append(f"→ IDs : {', '.join(map(str, ids))}")
+                dlg.setLabelText("\n".join(lines))
+                return
+
+                #continue
+
+            if "summary" in obj:
+                s = obj["summary"]
+                txt = (
+                    f"Fertig.\n"
+                    f"processed: {s.get('processed')}  "
+                    f"succeeded: {s.get('succeeded')}  "
+                    f"failed: {s.get('failed')}  "
+                    f"ok: {s.get('ok')}"
+                )
+                dlg.setLabelText(txt)
+                continue
+
+            # sonst Roh-Objekt anzeigen
+            dlg.setLabelText((dlg.labelText() or "") + "\n" + json.dumps(obj, ensure_ascii=False))
+
+    def _on_ingest_stderr(self):
+        if not self._ingest_proc or not self._ingest_progress:
+            return
+        data = self._ingest_proc.readAllStandardError().data().decode("utf-8", errors="replace")
+        if data:
+            self._ingest_progress.setLabelText((self._ingest_progress.labelText() or "") + "\n" + data)
+
+    def _on_ingest_finished(self, code: int, status):
+        if self._ingest_progress:
+            self._ingest_progress.setCancelButtonText("Fertig")
+            if code == 0:
+                self._ingest_progress.setLabelText((self._ingest_progress.labelText() or "") + "\nOK.")
+            else:
+                self._ingest_progress.setLabelText((self._ingest_progress.labelText() or "") + f"\nBeendet mit Code={code}.")
+            self._ingest_progress.setMaximum(1)
+            self._ingest_progress.setValue(1)
+        # Prozess freigeben
+        self._ingest_proc = None
+        # Nach erfolgreichem Ingest: Tabelle neu laden
+        try:
+            self._reload_categories()
+            self.refresh()
+        except Exception:
+            pass
+
 
     # Persist preferences on close
     def closeEvent(self, event):
