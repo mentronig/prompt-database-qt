@@ -1,5 +1,12 @@
 # 🧭 Workflow Handout – MT Prompt Engine
 
+> **Hinweis (Arbeitsmodus / Kurzleitfaden):**
+> Bitte vor Start stets den gemeinsamen Leitfaden befolgen:
+> `docs/Kurzleitfaden-Zusammenarbeit.md`.
+> – Alle Python-Aufrufe über `tools\run_with_kpi.cmd`
+> – Nach jedem Schritt: Output prüfen (KPI/Tests), erst dann weiter
+> – Bei Unklarheit: Rückfrage zu Beginn (Kontext-Lock)
+
 Dieses Handout beschreibt die **Prozessschritte** für die tägliche Arbeit im Projekt. Es dient als Anleitung für die effiziente Nutzung von Backlog, Code und UI-Chats sowie den Brückendateien.
 
 ---

@@ -39,3 +39,20 @@
 - End-to-End aus der UI: HTML → JSONL → DB → Dedupe (optional) ohne manuelle Schritte.  
 - KPI-Metriken geloggt; Fehlerpfade sichtbar.  
 - Tests grün, Doku aktualisiert.
+
+# Projektstatus – MT Prompt Engine (Auszug)
+
+## S-006 – UI-Integration: Einzel-HTML → DB
+**Status:** Geplant  
+**Kurzbeschreibung:** Einzelne HTML-Datei aus der GUI auswählen, per Tooling (ingestion.*) zu Prompts verarbeiten und in DB schreiben. Nicht-blockierend, Live-Logs, Summary.  
+**Nächste Schritte:**
+- `html_import_dialog.py` umsetzen (analog Bulk-Dialog)
+- `IngestRunner.build_commands_for_file()` ergänzen
+- Tests (Parser/Builder/UI-Smoke) hinzufügen
+**Abhängigkeiten:** PySide6, ingestion.*-Module, optional KPI-Wrapper
+
+## S-005 – UI-Integration: Bulk-Ingest (Ordner)
+**Status:** In Arbeit / Verfeinerung (KPI/Charts, Drag&Drop)
+
+## S-002 – Repo-aligned Bulk Ingest
+**Status:** Abgeschlossen

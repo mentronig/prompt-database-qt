@@ -151,3 +151,11 @@ feat: <ID> <Kurztitel> – <kurzer Nutzen>
 > Bitte setze sie **vollständig** um und liefere ein **ZIP** gemäß `docs/templates/handover_smart.md`.  
 > **Keine Diffs**, alle betroffenen `.py` als **finale Vollversion**, inkl. **Tests**, aktualisierten Markdown-Dateien, `AENDERUNGSPROTOKOLL.md` (inkl. Projektstruktur) + `COMMIT_MESSAGE.txt`.  
 > Ich möchte danach nur **entpacken, testen, committen**.“
+
+
+## Arbeitsmodus/Kurzleitfaden
+Bevor mit der Umsetzung begonnen wird, sind folgende Regeln verbindlich einzuhalten:
+- **Leitfaden lesen**: `docs/Kurzleitfaden-Zusammenarbeit.md`
+- **KPI-Wrapper**: Alle Python-Kommandos via `tools\run_with_kpi.cmd` aufrufen.
+- **Schritt-Prüfung**: Nach jedem Schritt konsolenbasierten Output/KPIs prüfen.
+- **Kontext-Lock**: Story/Scope zu Beginn bestätigen; Änderungen nur per Change-Request.
