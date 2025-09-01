@@ -14,14 +14,28 @@
   - Bulk-Ingest (`bulk_ingest_local.py`) für ganze Ordner mit .txt-Dateien
   - Integration Bulk-Ingest in GUI (Import-Menü, QProcess, Fortschrittsdialog)
   - Lokaler HTML-Fetcher (`article_fetcher_local.py`) → extrahiert Artikeltext aus gespeicherten HTML-Seiten
+  - **LLM-Extraktion:** `tools/llm_extract_prompts.py` inkl. **Refine-Modus** (1:1 Ausgabe)
+  - KPI-Wrapper (`tools/run_with_kpi.cmd`) + Reports
+	
 - **Neue Dokumentation:**
   - Handover-Templates für Stories, Bugs, Experimente (`docs/templates/…`)
 
 ## Offene Probleme
-- **Tag Overloading:** Tags wachsen unkontrolliert durch Artikelimporte, Übersicht leidet.
-- **Performance im Chat:** Kontextgröße und viele Dateien machen Chats langsamer (gelöst durch Aufteilung in themenspezifische Chats und Brückendateien).
+- HTML-Diversität: Heuristiken robust, dennoch Edge-Cases denkbar → LLM-Refine als Sicherheitsnetz.
+- LLM-Verfügbarkeit: API-Key/Rate-Limits → Fallback auf Heuristik gesichert (kein Datenverlust).
 
-## Nächste geplante Arbeiten
-1. Tags konsolidieren (Normalisierung, Synonym-Mapping, DB-Update).
-2. Backlog mit Stories systematisch aufbauen.
-3. Testlauf einer Story-Implementierung mit Handover-Template (Dry-Run).
+## Nächste geplante Arbeiten (UI-Integration)
+1. **QAction „Bulk ingest folder…“** an Worker-Prozess anbinden (QProcess, non-blocking).  
+2. KPI-Wrapper für **alle** Aufrufe (`llm_extract_prompts`, `ingest_jsonl_to_db`, optional `dedupe_db`).  
+3. Fortschrittsdialog (Start/Cancel) + Ergebnis-Panel (Zahlen/JSON-Summary, Pfade).  
+4. Mini-Integrationstest (CLI) + UI-Smoketest erweitern.
+
+## Definition of Ready (S-002)
+- LLM-Tool + Import-Tool vorhanden (ja)  
+- KPI-Wrapper vorhanden (ja)  
+- Handover-Dokument liegt bei (ja)  
+
+## Definition of Done (S-002)
+- End-to-End aus der UI: HTML → JSONL → DB → Dedupe (optional) ohne manuelle Schritte.  
+- KPI-Metriken geloggt; Fehlerpfade sichtbar.  
+- Tests grün, Doku aktualisiert.

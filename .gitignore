@@ -79,6 +79,7 @@ project_structure_*.zip
 tests/report_*.html
 tests/report_*.md
 tests/report_*.json
+report/
 
 # Beispiele: Cleanup-Report
 cleanup_report_*.html

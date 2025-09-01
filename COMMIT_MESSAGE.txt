@@ -1,0 +1,7 @@
+feat: S-002 UI-Integration Bulk Ingest mit KPI & Progress
+
+- QAction „Bulk ingest folder…“ an Worker (QProcess) angebunden
+- KPI-Wrapper integriert; Logs/JSON-Summary im UI sichtbar
+- Ergebnis-Panel mit Count/Skips/Errors/DB-Pfad
+- Mini-E2E & UI-Smoketest ergänzt
+- Doku aktualisiert (Backlog/Status/Changelog, Handover)

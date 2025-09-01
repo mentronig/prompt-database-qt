@@ -1,265 +1,154 @@
-# ingestion/article_ingestor.py (patched v004): robustes Repo-Adapter + Hinweis zu --file/--text
 from __future__ import annotations
-from dataclasses import dataclass
-from typing import Any, Dict, List, Callable
-import argparse
-import hashlib
-import json
-import os
-from datetime import datetime
 
-try:
-    from data.prompt_repository import PromptRepository
-    HAS_REPO = True
-except Exception:
-    HAS_REPO = False
-
-def _load_llm_provider():
-    try:
-        from ingestion.llm_provider import LLMProvider
-        return LLMProvider
-    except Exception as e:
-        raise RuntimeError(f"LLMProvider nicht gefunden: {e}")
-
-DEFAULT_CATEGORY = "enhancement"
-DEFAULT_TAGS = ["article", "pattern"]
+import argparse, sys, json as _json, re, html as _html
+from dataclasses import dataclass, asdict
+from typing import Dict, Iterable, List, Optional
+from data.tag_normalizer import TagNormalizer
+from data.prompt_repository import PromptRepository
+from .article_fetcher import clean_text
 
 @dataclass
 class SourceMeta:
-    url: str | None = None
-    title: str | None = None
-    author: str | None = None
-    published_at: str | None = None
+    url: Optional[str] = None
+    title: Optional[str] = None
+    fetched_at: Optional[str] = None
+    extractor: Optional[str] = None
 
-SYSTEM_PROMPT = """Du bist ein Extraktionsassistent.
-Lies den gegebenen Artikeltext und extrahiere strukturierte Informationen als reines JSON.
-Gib ausschließlich JSON zurück, ohne zusätzliche Erklärungen.
-Schema:
-{
-  "key_takeaways": [ "…" ],
-  "patterns": [
-    {
-      "name": "string",
-      "intent": "string",
-      "structure": "string",
-      "guidelines": {
-        "do": ["…"],
-        "dont": ["…"]
-      },
-      "example_prompts": ["…"],
-        "pitfalls": ["…"],
-        "tags": ["…"]
+_TAG_RE = re.compile(r"<[^>]+>")
+_SCRIPT_RE = re.compile(r"<script\b[^>]*>.*?</script>", re.IGNORECASE | re.DOTALL)
+_STYLE_RE = re.compile(r"<style\b[^>]*>.*?</style>", re.IGNORECASE | re.DOTALL)
+
+def _looks_like_html(s: str) -> bool:
+    if not isinstance(s, str):
+        return False
+    sniff = s[:200].lower()
+    return ("<!doctype" in sniff) or ("<html" in sniff) or ("</p>" in sniff) or ("</div>" in sniff)
+
+def _strip_html(s: str) -> str:
+    if not s:
+        return s
+    s = _SCRIPT_RE.sub(" ", s)
+    s = _STYLE_RE.sub(" ", s)
+    s = _TAG_RE.sub(" ", s)
+    s = _html.unescape(s)
+    return s
+
+def _collect_tags(extraction: Dict) -> List[str]:
+    tags: List[str] = []
+    for key in ("tags", "keywords"):
+        val = extraction.get(key)
+        if isinstance(val, str):
+            tags.extend([p.strip() for p in val.split(",") if p.strip()])
+        elif isinstance(val, (list, tuple, set)):
+            tags.extend([str(x) for x in val if str(x).strip()])
+    patterns = extraction.get("patterns", [])
+    if isinstance(patterns, list):
+        for p in patterns:
+            if isinstance(p, dict) and "tags" in p:
+                v = p.get("tags", [])
+                if isinstance(v, str):
+                    tags.extend([s.strip() for s in v.split(",") if s.strip()])
+                elif isinstance(v, (list, tuple, set)):
+                    tags.extend([str(x) for x in v if str(x).strip()])
+    return tags
+
+def _derive_title(payload: Dict, meta: Optional[SourceMeta]) -> str:
+    title = payload.get("title")
+    if isinstance(title, str) and title.strip():
+        return title.strip()
+    patterns = payload.get("patterns", [])
+    if isinstance(patterns, list):
+        for p in patterns:
+            if isinstance(p, dict):
+                nm = p.get("name")
+                if isinstance(nm, str) and nm.strip():
+                    return nm.strip()
+    if meta and isinstance(meta.title, str) and meta.title.strip():
+        return meta.title.strip()
+    return ""
+
+def _derive_content(payload: Dict) -> str:
+    text = payload.get("text") or payload.get("content")
+    if isinstance(text, str) and text.strip():
+        if _looks_like_html(text):
+            text = _strip_html(text)
+        return clean_text(text)
+    parts: List[str] = []
+    patterns = payload.get("patterns", [])
+    if isinstance(patterns, list):
+        for p in patterns:
+            if isinstance(p, dict):
+                ex = p.get("example_prompts")
+                if isinstance(ex, str):
+                    parts.append(ex)
+                elif isinstance(ex, (list, tuple, set)):
+                    parts.extend([str(x) for x in ex if str(x).strip()])
+    if parts:
+        return clean_text(" ".join(parts))
+    kt = payload.get("key_takeaways")
+    if isinstance(kt, str):
+        return clean_text(kt)
+    elif isinstance(kt, (list, tuple, set)):
+        return clean_text(" ".join([str(x) for x in kt if str(x).strip()]))
+    return ""
+
+def map_extraction_to_prompts(extraction: Dict, meta: Optional[SourceMeta] = None, category: Optional[str] = None, default_tags: Optional[Iterable[str]] = None, normalizer: Optional[TagNormalizer] = None) -> List[Dict]:
+    normalizer = normalizer or TagNormalizer()
+    payload: Dict = dict(extraction or {})
+    title = _derive_title(payload, meta)
+    content = _derive_content(payload)
+    tags = _collect_tags(payload)
+    if default_tags:
+        tags.extend(list(default_tags))
+    tags, _ = normalizer.normalize_list(tags)
+    record = {
+        "title": title,
+        "content": content,
+        "tags": tags,
+        "meta": asdict(meta) if meta else {},
     }
-  ]
-}
-"""
+    if category:
+        record["category"] = str(category)
+    return [record]
 
-USER_PROMPT_TEMPLATE = """Artikel:
-\"\"\"{article_text}\"\"\"
+def _build_argparser():
+    ap = argparse.ArgumentParser(description="Map text/extraction to prompts and (optionally) save to DB.")
+    ap.add_argument("--file", help="Pfad zu einer Textdatei; Inhalt wird als 'content' benutzt.")
+    ap.add_argument("--source-url", default=None)
+    ap.add_argument("--source-title", default=None)
+    ap.add_argument("--category", default=None)
+    ap.add_argument("--tags", default="", help="Kommagetrennte Tags als Default (z. B. 'article,pattern')")
+    ap.add_argument("--dry-run", action="store_true", help="Nur Ausgabe JSON, nicht in DB schreiben.")
+    return ap
 
-Aufgabe:
-1) Extrahiere 3–10 aussagekräftige "patterns" (siehe Schema).
-2) Fülle möglichst viele Felder. Wenn etwas fehlt, lasse es leer oder nutze [].
-3) Antworte ausschließlich mit gültigem JSON (ohne Markdown).
-"""
+def _from_textfile(path: str) -> str:
+    with open(path, "r", encoding="utf-8", errors="ignore") as f:
+        return f.read()
 
-def build_user_prompt(article_text: str) -> str:
-    return USER_PROMPT_TEMPLATE.format(article_text=article_text.strip())
-
-def hash_article(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
-
-def extract_with_llm(article_text: str, provider) -> Dict[str, Any]:
-    user_prompt = build_user_prompt(article_text)
-    return provider.extract_json(SYSTEM_PROMPT, user_prompt)
-
-def map_extraction_to_prompts(extraction: Dict[str, Any],
-                              source: SourceMeta,
-                              category: str,
-                              tags: List[str]) -> List[Dict[str, Any]]:
-    prompts: List[Dict[str, Any]] = []
-    patterns = extraction.get("patterns", []) or []
-    for p in patterns:
-        title = p.get("name") or "Untitled Pattern"
-        intent = p.get("intent", "")
-        structure = p.get("structure", "")
-        guidelines = p.get("guidelines", {})
-        do_list = ", ".join(guidelines.get("do", []) or [])
-        dont_list = ", ".join(guidelines.get("dont", []) or [])
-        pits = p.get("pitfalls", []) or []
-        example_prompts = p.get("example_prompts", []) or []
-
-        description_parts = []
-        if intent: description_parts.append(f"Intent: {intent}")
-        if structure: description_parts.append(f"Struktur: {structure}")
-        if do_list or dont_list:
-            description_parts.append(f"Guidelines – DO: {do_list} | DONT: {dont_list}")
-        if pits:
-            description_parts.append("Pitfalls: " + ", ".join(pits))
-        src_bits = []
-        if source.title: src_bits.append(f"Quelle: {source.title}")
-        if source.url: src_bits.append(f"URL: {source.url}")
-        if src_bits: description_parts.append(" / ".join(src_bits))
-        description = "\n".join(description_parts)
-
-        content = example_prompts[0] if example_prompts else ""
-        sample_output = ""
-        if len(example_prompts) > 1:
-            sample_output = "\n".join(example_prompts[1:])
-
-        merged_tags = list(dict.fromkeys((p.get("tags") or []) + tags))
-
-        prompts.append({
-            "title": title,
-            "description": description,
-            "category": category,
-            "tags": merged_tags,
-            "content": content,
-            "sample_output": sample_output,
-        })
-    return prompts
-
-def _make_repo_writer(repo) -> Callable[[Dict[str, Any]], None]:
-    # 1) add_prompt(title=..., content=..., ...)
-    if hasattr(repo, "add_prompt"):
-        def _w(rec: Dict[str, Any]):
-            repo.add(
-                title=rec.get("title",""),
-                content=rec.get("content",""),
-                description=rec.get("description",""),
-                category=rec.get("category",""),
-                tags=rec.get("tags",[]),
-                sample_output=rec.get("sample_output",""),
-                version=rec.get("version",""),
-                related_ids=rec.get("related_ids",[]),
-            )
-        return _w
-
-    # 2) insert_prompt/create_prompt/save_prompt(dict)
-    for name in ("insert_prompt","create_prompt","save_prompt"):
-        if hasattr(repo, name):
-            method = getattr(repo, name)
-            def _w(rec: Dict[str, Any], _m=method):
-                _m(rec)
-            return _w
-
-    # 3) generisch: insert/add/create/upsert(dict)
-    for name in ("insert","add","create","upsert"):
-        if hasattr(repo, name):
-            method = getattr(repo, name)
-            def _w(rec: Dict[str, Any], _m=method):
-                _m(rec)
-            return _w
-
-    def _nope(_rec: Dict[str, Any]):
-        raise AttributeError("PromptRepository kennt keine add/insert/create-ähnliche Methode.")
-    return _nope
-
-def save_prompts(prompts: List[Dict[str, Any]],
-                 article_hash: str,
-                 dry_run: bool = False) -> int:
-    if dry_run:
+def main_cli(argv: Optional[List[str]] = None) -> int:
+    ap = _build_argparser()
+    args = ap.parse_args(argv)
+    defaults = [t.strip() for t in (args.tags or "").replace(";", ",").split(",") if t.strip()]
+    text = _from_textfile(args.file) if args.file else ""
+    meta = SourceMeta(url=args.source_url, title=args.source_title)
+    extraction = {
+        "title": args.source_title or "",
+        "text": text,
+        "tags": defaults,
+        "key_takeaways": [],
+        "patterns": [],
+    }
+    records = map_extraction_to_prompts(extraction, meta, args.category, defaults)
+    result = {"ok": True, "saved_prompts": 0, "items": records}
+    if args.dry_run:
+        sys.stdout.write(_json.dumps(result, ensure_ascii=False))
         return 0
-
-    if HAS_REPO:
-        repo = PromptRepository()
-        write = _make_repo_writer(repo)
-        count = 0
-        try:
-            for pr in prompts:
-                write(pr)
-                count += 1
-            return count
-        except AttributeError:
-            pass  # Fallback auf TinyDB
-
-    from tinydb import TinyDB
-    os.makedirs("db", exist_ok=True)
-    db = TinyDB("db/prompts.json")
-    table = db.table("prompts")
-    for pr in prompts:
-        pr_rec = {
-            **pr,
-            "ingestion_article_hash": article_hash,
-            "created_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
-        }
-        table.insert(pr_rec)
-    return len(prompts)
-
-def run_ingestion(article_text: str,
-                  source: SourceMeta,
-                  category: str = DEFAULT_CATEGORY,
-                  tags: List[str] | None = None,
-                  dry_run: bool = False) -> Dict[str, Any]:
-    if dry_run:
-        extraction = {
-            "key_takeaways": ["Demo ohne LLM"],
-            "patterns": [{
-                "name": "Dummy Pattern",
-                "intent": "Testen ohne LLM",
-                "structure": "Artikeltext analysieren",
-                "guidelines": {"do": ["testen"], "dont": ["produktiv nutzen"]},
-                "example_prompts": ["Explain X in simple terms"],
-                "pitfalls": ["Kein echtes Ergebnis"],
-                "tags": ["dummy","test"]
-            }]
-        }
-    else:
-        LLMProvider = _load_llm_provider()
-        provider = LLMProvider()
-        extraction = extract_with_llm(article_text, provider)
-
-    mapped = map_extraction_to_prompts(extraction, source, category, tags or DEFAULT_TAGS)
-    a_hash = hash_article(article_text)
-    saved = 0 if dry_run else save_prompts(mapped, a_hash, dry_run=dry_run)
-    return {
-        "article_hash": a_hash,
-        "extracted_patterns": len(extraction.get("patterns", []) or []),
-        "mapped_prompts": len(mapped),
-        "saved_prompts": saved,
-        "dry_run": dry_run,
-    }
-
-def _parse_args():
-    ap = argparse.ArgumentParser(description="Artikel → Patterns → Prompt-Records")
-    grp = ap.add_mutually_exclusive_group(required=True)
-    grp.add_argument("--file", type=str, help="Pfad zu einer Textdatei mit dem Artikel")
-    grp.add_argument("--text", type=str, help="Artikeltext direkt (String)")
-    ap.add_argument("--source-url", type=str, default="", help="Quellen-URL")
-    ap.add_argument("--source-title", type=str, default="", help="Quellen-Titel")
-    ap.add_argument("--source-author", type=str, default="", help="Autor")
-    ap.add_argument("--source-published", type=str, default="", help="ISO-Datum")
-    ap.add_argument("--category", type=str, default=DEFAULT_CATEGORY)
-    ap.add_argument("--tags", type=str, default="article,pattern")
-    ap.add_argument("--dry-run", action="store_true")
-    return ap.parse_args()
-
-def main():
-    args = _parse_args()
-    if args.file:
-        with open(args.file, "r", encoding="utf-8") as f:
-            article_text = f.read()
-    else:
-        article_text = args.text or ""
-
-    # Hinweis: Wenn du eine Datei verarbeiten willst, nutze --file Pfad\zur\Datei
-    # Beispiel (Windows): python -m ingestion.article_ingestor --file .\Beispiel.txt
-
-    source = SourceMeta(
-        url=args.source_url or None,
-        title=args.source_title or None,
-        author=args.source_author or None,
-        published_at=args.source_published or None,
-    )
-    tags = [t.strip() for t in args.tags.split(",") if t.strip()]
-    result = run_ingestion(
-        article_text=article_text,
-        source=source,
-        category=args.category,
-        tags=tags,
-        dry_run=args.dry_run,
-    )
-    print(json.dumps(result, ensure_ascii=False, indent=2))
+    repo = PromptRepository()
+    for rec in records:
+        repo.add(rec)
+        result["saved_prompts"] += 1
+    sys.stdout.write(_json.dumps(result, ensure_ascii=False))
+    return 0
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main_cli())
