@@ -1,13 +1,14 @@
-
-"""Prompt repository with absolute DB path + robust schema guard & auto-migration.
+"""Prompt repository with absolute DB path + robust schema guard & auto-migration + stable IDs.
 
 - Anchors DB path at repo root (data/prompts.json)
 - Reads legacy formats and migrates to {"items": [...]}
 - Creates timestamped backups before in-place migration
+- Ensures every item has a stable 'id' (uuid4 hex)
+- delete() accepts either index (int) OR id (str)
 """
 from __future__ import annotations
 
-import json, os, logging, shutil, re
+import json, os, logging, shutil, re, uuid
 from typing import Dict, Optional, List, Iterable, Set, Any
 from pathlib import Path
 from datetime import datetime
@@ -50,6 +51,10 @@ class PromptRepository:
             log.info("PromptRepository created new DB file at %s (source=%s)", self.db_path, source)
         else:
             self._ensure_schema_on_disk()
+            # NEW: ensure every item has a stable id
+            added = self._ensure_ids_on_disk()
+            if added:
+                log.info("DB ensured ids for %d items (db=%s)", added, self.db_path)
             log.info("PromptRepository using DB at %s (source=%s)", self.db_path, source)
 
     # ----------------- internal IO -----------------
@@ -140,11 +145,36 @@ class PromptRepository:
         with open(self.db_path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
 
+    # ----------------- ID handling -----------------
+    def _ensure_ids_on_disk(self) -> int:
+        """Assign uuid4 hex 'id' to any item missing it; persist in place. Returns count added."""
+        data = self._read()
+        items = data.get("items", [])
+        added = 0
+        for it in items:
+            if isinstance(it, dict) and not it.get("id"):
+                it["id"] = uuid.uuid4().hex
+                added += 1
+        if added:
+            self._write(data)
+        return added
+
+    def _find_index_by_id(self, id_value: str) -> Optional[int]:
+        data = self._read()
+        for idx, it in enumerate(data.get("items", [])):
+            if isinstance(it, dict) and str(it.get("id", "")) == str(id_value):
+                return idx
+        return None
+
     # ----------------- CRUD ------------------------
     def add(self, item: Dict) -> Dict:
         data = self._read()
         before = len(data.get("items", []))
         item = dict(item)
+        # ensure id
+        if not item.get("id"):
+            item["id"] = uuid.uuid4().hex
+        # normalize tags
         tags, _ = self.normalizer.normalize_list(item.get("tags", []))
         item["tags"] = tags
         data["items"].append(item)
@@ -160,20 +190,40 @@ class PromptRepository:
             if k == "tags":
                 v, _ = self.normalizer.normalize_list(v)
             item[k] = v
+        # never drop id
+        if not item.get("id"):
+            item["id"] = uuid.uuid4().hex
         data["items"][idx] = item
         self._write(data)
         log.info("DB update() idx=%s ok (db=%s)", idx, self.db_path)
         return item
 
-    def delete(self, idx: int) -> Dict:
+    def delete(self, key: int | str) -> Dict:
+        """Delete by index (int) OR by stable id (str). Returns removed item."""
         data = self._read()
-        removed = data["items"].pop(idx)
+        items = data.get("items", [])
+        if isinstance(key, int):
+            removed = items.pop(key)
+            self._write(data)
+            log.info("DB delete() idx=%s ok (db=%s)", key, self.db_path)
+            return removed
+        # else: treat as id
+        idx = self._find_index_by_id(str(key))
+        if idx is None:
+            raise KeyError(f"id not found: {key}")
+        removed = items.pop(idx)
         self._write(data)
-        log.info("DB delete() idx=%s ok (db=%s)", idx, self.db_path)
+        log.info("DB delete() id=%s (idx=%s) ok (db=%s)", key, idx, self.db_path)
         return removed
 
     def get(self, idx: int) -> Dict:
         return self._read()["items"][idx]
+
+    def get_by_id(self, id_value: str) -> Dict:
+        idx = self._find_index_by_id(id_value)
+        if idx is None:
+            raise KeyError(f"id not found: {id_value}")
+        return self.get(idx)
 
     def count(self) -> int:
         c = len(self._read().get("items", []))

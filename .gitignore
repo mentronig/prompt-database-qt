@@ -73,13 +73,15 @@ dist/
 *.zip
 backup_*.json
 backups/
+data/prompts.json.bak.*
 
 # Projektgenerierte Dateien
 project_structure_*.zip
 tests/report_*.html
 tests/report_*.md
 tests/report_*.json
-report/
+data/prompts.json.bak.*
+reports/
 
 # Beispiele: Cleanup-Report
 cleanup_report_*.html

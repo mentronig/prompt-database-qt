@@ -775,7 +775,7 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
-
+    
     # Persist preferences on close
     def closeEvent(self, event):
         self._save_prefs()
